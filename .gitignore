@@ -1,0 +1,18 @@
+# This repository is PUBLIC. Only the built website goes in it - never keys, passwords or exports.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.env
+.env*
+*service*account*.json
+*credentials*.json
+*.xlsx
+*.docx
+*.pdf
+*.csv
+*.log
+.DS_Store
+Thumbs.db

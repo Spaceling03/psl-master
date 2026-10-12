@@ -802,6 +802,12 @@ async function askCancel(a) {
 
 // ---- approvers
 let apprItem = null, apprEdits = null, apprNoteText = "";
+// the approver's corrections, one per line (day type / break / note; for time off: extra break / unpaid)
+function startEdits() {
+  if (!apprItem || apprEdits) return;
+  if (apprItem.kind === "claim") apprEdits = apprItem.obj.lines.map(l => ({ dayType: l.dayType, breakHrs: l.breakHrs || 0, note: l.note || "" }));
+  if (apprItem.kind === "til" && !apprItem.obj.category) apprEdits = apprItem.obj.lines.map(l => ({ extraBreak: l.extraBreak || 0, paidBy: l.paidBy === "Unpaid" ? "Unpaid" : "TIL" }));
+}
 async function openApproval(it) {
   stack.push({ name: "approveItem", args: it }); apprItem = null; apprEdits = null; apprNoteText = ""; render();
   try {
@@ -818,12 +824,13 @@ async function openApproval(it) {
       const prof = Object.assign(clone(PROFILE), pd ? JSON.parse(pd.f.profile || "{}") : {}); prof.staffId = emp; prof.normalDays = E.cleanDays(prof.normalDays);
       const pol = policyFrom(await fs.get("ot_settings", "policy"));
       apprItem = { kind: it.kind, doc: d, emp, db, prof, pol, obj: it.kind === "pay" ? payFrom(d) : it.kind === "claim" ? claimFrom(d) : tilFrom(d) };
+      if (!apprItem.obj) throw new DbError("damaged", "This request could not be read.");
       apprItem.sent = clone(apprItem.obj.profile || {});
+      startEdits();                                  // BEFORE currentDetails: it draws the page, and the page needs the approver's edits
       await currentDetails(apprItem, pd);
       it.name = apprItem.obj.profile.name || it.name;
     }
-    if (apprItem.kind === "claim") apprEdits = apprItem.obj.lines.map(l => ({ dayType: l.dayType, breakHrs: l.breakHrs || 0, note: l.note || "" }));
-    if (apprItem.kind === "til" && !apprItem.obj.category) apprEdits = apprItem.obj.lines.map(l => ({ extraBreak: l.extraBreak || 0, paidBy: l.paidBy === "Unpaid" ? "Unpaid" : "TIL" }));
+    startEdits();
   } catch (e) { stack.pop(); render(); return tell("Cannot open", e.message); }
   render();
 }
@@ -1557,7 +1564,14 @@ function pageTilEdit(v) {
     ST.drafts.til.lines.push(blankLeave()); save();
   }
   const a = ST.drafts.til, allowed = tilAllowed();
+  if (!allowed) tilRange.paidBy = "Unpaid";
   v.innerHTML = banners() + `<div class="sub" style="margin:0 4px 12px">Full day = ${hrs(ST.profile.normalHours)} h · half day AM = ${hrs(E.HalfDayAm)} h · PM = ${hrs(E.HalfDayPm)} h. Apply at least 3 working days before.</div>` +
+    // several days in one go: every working day from .. to becomes a full day (your days off are left out)
+    `<div class="linecard rangecard" style="border-left-color:var(--teal)"><div class="head"><b>Several days in a row</b></div>
+      <div class="grid2"><div class="field"><label>From</label><input type="date" id="rgFrom" value="${esc(tilRange.from)}"></div><div class="field"><label>To</label><input type="date" id="rgTo" value="${esc(tilRange.to)}" min="${esc(tilRange.from)}"></div></div>
+      <div class="field"><label>Paid by</label><div class="seg small" id="rgPaid"><button data-rv="TIL" class="${tilRange.paidBy !== "Unpaid" ? "on til" : ""}" ${allowed ? "" : "disabled"}>My credits</button><button data-rv="Unpaid" class="${tilRange.paidBy === "Unpaid" ? "on" : ""}">Unpaid leave</button></div></div>
+      <div class="sub" id="rgInfo" style="margin:2px 2px 10px"></div>
+      <button class="btn block" data-act="addRange">Add these days</button></div>` +
     a.lines.map((l, i) => `<div class="linecard" data-i="${i}" style="border-left-color:var(--teal)"><div class="head"><b>Day ${i + 1}</b><span class="chip gray" data-c="charged"></span><button class="btn ghost sm" data-del="${i}" aria-label="Remove">✕</button></div>
       <div class="field"><label>Date</label><input type="date" data-f="date" value="${esc(l.date)}"></div>
       <div class="field"><label>Leave</label><select data-f="leaveType">${E.LeaveTypes.map(t => `<option ${t === l.leaveType ? "selected" : ""}>${t}</option>`).join("")}</select></div>
@@ -1566,7 +1580,27 @@ function pageTilEdit(v) {
       <div class="field"><label>Reason (optional)</label><input type="text" data-f="reason" maxlength="120" value="${esc(l.reason)}"></div></div>`).join("") +
     `<button class="btn block" data-act="addLeave" style="margin-bottom:12px">+ Add another day</button><div class="msgs" id="checks"></div>`;
   actionBar(`<div class="info" id="tilSum"></div><button class="btn p" data-act="sendTil">Send</button>`);
-  tilCalc();
+  tilCalc(); rangeInfo();
+}
+// "several days in a row": the working days in the chosen dates (your days off are left out), each with a "public holiday" tick -
+// the admin's public holidays are ticked already; a ticked day is not taken (and not charged). Paid by credits: against your free credits.
+let tilRange = { from: "", to: "", paidBy: "TIL", ph: {} };
+const rangePh = d => d in tilRange.ph ? tilRange.ph[d] : d in E.holidays(ST.policy);
+function rangeDays() { return tilRange.from ? E.workingDays(ST.profile, tilRange.from, tilRange.to || tilRange.from) : []; }
+function rangeInfo() {
+  const box = $("#rgInfo"); if (!box) return;
+  const nh = ST.profile.normalHours || 8.5, free = ledger().approvedLeft, fullDays = Math.floor((free + 0.001) / nh);
+  const credits = `Your free credits: <b>${hrs(free)} h</b> = ${plural(fullDays, "full day", "full days")}.`;
+  if (!tilRange.from) { box.innerHTML = tilRange.paidBy === "Unpaid" ? "Unpaid leave does not use your credits." : credits; return; }
+  const all = rangeDays(), names = E.holidays(ST.policy), days = all.filter(d => !rangePh(d));
+  const span = E.day(tilRange.to || tilRange.from) && E.day(tilRange.from) ? Math.round((E.day(tilRange.to || tilRange.from) - E.day(tilRange.from)) / 864e5) + 1 : 0;
+  const need = E.R2(days.length * nh), DN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  box.innerHTML = (all.length ? `<div class="phlist">${all.map(d => `<label class="phday${rangePh(d) ? " on" : ""}"><input type="checkbox" data-ph="${d}" ${rangePh(d) ? "checked" : ""}>
+      <span><b>${DN[E.day(d).getUTCDay()]} ${dmy(d).substr(0, 5)}</b> ${rangePh(d) ? "public holiday" + (names[d] ? " · " + esc(names[d]) : "") : "working day"}</span></label>`).join("")}</div>
+      <div class="sub" style="margin:4px 0 8px">Tick a day that is a public holiday - it is left out.${span > all.length ? " " + plural(span - all.length, "day is", "days are") + " not your working days (" + esc(E.cleanDays(ST.profile.normalDays)) + ") and left out." : ""}</div>` : "") +
+    (!days.length ? "No working days to take in these dates." :
+    `<b>${plural(days.length, "working day", "working days")}</b> = ${hrs(need)} h` + (tilRange.paidBy === "Unpaid" ? " of unpaid leave (your credits are not used)." :
+      " from your credits. " + credits + (need > free + 0.001 ? ` <b style="color:var(--bad)">${hrs(E.R2(need - free))} h more than you have</b> - make some days Unpaid, or choose fewer days.` : "")));
 }
 const blankLeave = () => ({ date: "", leaveType: "Full Day", from: "", to: "", reason: "", paidBy: tilAllowed() ? "TIL" : "Unpaid", extraBreak: 0, day: "", span: 0, restFree: 0, hours: 0, unpaid: 0 });
 function tilCalc() {
@@ -1789,6 +1823,8 @@ document.addEventListener("click", async e => {
   const er = t.closest("[data-editrem]");
   if (er) { const x = ((ST.cal || {}).reminders || []).find(r => r.id === er.dataset.editrem); if (x) { remDraft = clone(x); peopleQ = ""; stack.push({ name: "remEdit" }); render(); window.scrollTo(0, 0); if (x.audience === "people") loadPeople().then(() => render()).catch(() => { }); } return; }
   const dr = t.closest("[data-delrem]"); if (dr) { deleteReminder(dr.dataset.delrem); return; }
+  const rv = t.closest("#rgPaid button");
+  if (rv && !rv.disabled) { tilRange.paidBy = rv.dataset.rv; $$("#rgPaid button").forEach(b => b.className = b === rv ? (rv.dataset.rv === "TIL" ? "on til" : "on") : ""); rangeInfo(); return; }
   const pb = t.closest('[data-f="paidBy"] button');
   if (pb && !pb.disabled) { const i = +pb.closest(".linecard").dataset.i; ST.drafts.til.lines[i].paidBy = pb.dataset.v; save(); render(); return; }
   const snd = t.closest("[data-sound]"); if (snd) { remCache.sound = snd.dataset.sound; saveRem(); render(); return; }
@@ -1800,7 +1836,20 @@ document.addEventListener("click", async e => {
     stack.push({ name: a }); render(); window.scrollTo(0, 0); return;
   }
   if (a === "addLine") { const L = ST.drafts.claim.lines; if (L.length >= E.MaxClaimLines) return toast("One record holds " + E.MaxClaimLines + " lines - send it and start another"); L.push(blankLine(L[L.length - 1])); save(); render(); return; }
-  if (a === "addLeave") { if (ST.drafts.til.lines.length >= E.MaxLeaveLines) return toast("The form has room for " + E.MaxLeaveLines + " days"); ST.drafts.til.lines.push(blankLeave()); save(); render(); return; }
+  if (a === "addLeave") { if (ST.drafts.til.lines.length >= E.MaxLeaveDays) return toast("One application has room for " + E.MaxLeaveDays + " days"); ST.drafts.til.lines.push(blankLeave()); save(); render(); return; }
+  if (a === "addRange") {
+    const d = ST.drafts.til, from = tilRange.from, to = tilRange.to || tilRange.from;
+    if (!E.day(from) || !E.day(to)) return toast("Choose the first and last day");
+    if (to < from) return toast("The last day is before the first day");
+    const have = new Set(d.lines.map(l => l.date)), days = rangeDays().filter(x => !have.has(x) && !rangePh(x));
+    if (!days.length) return toast("No new working days in these dates");
+    d.lines = d.lines.filter(l => l.date);                         // an empty "Day 1" goes
+    if (d.lines.length + days.length > E.MaxLeaveDays) return toast("One application has room for " + E.MaxLeaveDays + " days - choose fewer");
+    days.forEach(x => d.lines.push(Object.assign(blankLeave(), { date: x, leaveType: "Full Day", paidBy: tilRange.paidBy === "Unpaid" || !tilAllowed() ? "Unpaid" : "TIL" })));
+    d.lines.sort((x, y) => x.date < y.date ? -1 : x.date > y.date ? 1 : 0);
+    tilRange = { from: "", to: "", paidBy: tilRange.paidBy, ph: {} };
+    save(); keepScroll(render); toast(plural(days.length, "day", "days") + " added"); return;
+  }
   if (a === "payAll") { const L = ledger(); ST.drafts.pay.hours = E.R2(L.lots.filter(l => l.approved && l.remaining > 0).slice(0, E.MaxClaimLines).reduce((s, l) => s + l.remaining, 0)); save(); render(); return; }
   if (a === "sendClaim") { if (await sheet("Send these OT hours?", "Once the approver confirms them they become credits for OT pay or time off.", [{ label: "Back" }, { label: "Send", cls: "p", value: true }])) submitClaim(); return; }
   if (a === "sendPay") { const p = ST.drafts.pay; if (await sheet("Send this OT pay request?", `<b>${hrs(p.hours)} h = ${money(p.amount)}</b> from your oldest credits.`, [{ label: "Back" }, { label: "Send", cls: "p", value: true }])) submitPay(); return; }
@@ -1833,6 +1882,7 @@ document.addEventListener("click", async e => {
 document.addEventListener("change", e => {
   const t = e.target;
   if (t.dataset.rem) { remCache[t.dataset.rem] = t.checked; saveRem(); if (t.dataset.rem === "on") render(); return; }
+  if (t.dataset.ph) { tilRange.ph[t.dataset.ph] = t.checked; rangeInfo(); return; }
   if (t.dataset.slot) { const s = t.dataset.slot; remCache.times = remCache.times.filter(x => x !== s); if (t.checked) remCache.times.push(s); remCache.times.sort(); saveRem(); if (!t.checked && s !== "09:00" && s !== "17:00") render(); return; }
   if (t.dataset.af === "dayType") { apprEdits[+t.closest(".linecard").dataset.ai].dayType = t.value; render(); return; }
   if (t.dataset.tf === "extraBreak") { apprEdits[+t.closest(".linecard").dataset.ti].extraBreak = parseFloat(t.value) || 0; render(); return; }
@@ -1856,6 +1906,11 @@ document.addEventListener("input", e => {
   if (t.id === "payHours") { ST.drafts.pay.hours = E.R2(Math.max(0, parseFloat(t.value) || 0)); save(); payCalc(); return; }
   if (t.id === "payRemarks") { ST.drafts.pay.remarks = t.value.slice(0, 200); save(); return; }
   if (t.id === "apprNote") { apprNoteText = t.value; return; }
+  if (t.id === "rgFrom" || t.id === "rgTo") {
+    tilRange[t.id === "rgFrom" ? "from" : "to"] = t.value;
+    if (t.id === "rgFrom") { const to = $("#rgTo"); if (to) { to.min = t.value; if (!tilRange.to || tilRange.to < t.value) { tilRange.to = t.value; to.value = t.value; } } }
+    rangeInfo(); return;
+  }
   if (t.dataset.rf && remDraft) { remDraft[t.dataset.rf] = t.value; return; }
   if (t.dataset.tn && trnDraft) { trnDraft[t.dataset.tn] = t.value; return; }
   if (t.id === "stfQ") { staffQ = t.value; const pos = t.selectionStart; render(); const q = $("#stfQ"); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch (x) { /* fine */ } } return; }

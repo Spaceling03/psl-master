@@ -1,7 +1,7 @@
 "use strict";
 /* PSL Master web app - the service worker: keeps the app's own files for offline starts, and shows the reminder the admin
    PC pushes (one summary, replacing the previous one). Database, sign-in and Google's files always go to the network. */
-const VERSION = "2026.10.12.1518";
+const VERSION = "2026.10.12.1618";
 const CACHE = "psl-" + VERSION;
 const SHELL = ["./", "index.html", "app.css?v=" + VERSION, "app.js?v=" + VERSION, "engine.js?v=" + VERSION, "web-native.js?v=" + VERSION, "guard.js?v=" + VERSION, "desktop.js?v=" + VERSION, "desktop.css?v=" + VERSION,
   "logo.png", "icon-192.png", "apple-touch-icon.png", "manifest.webmanifest"];

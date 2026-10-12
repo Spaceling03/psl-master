@@ -4,7 +4,7 @@
    phone is exactly what the PC expects. Nothing here talks to the network. */
 
 const E = (() => {
-  const MaxClaimLines = 15, MaxLeaveLines = 6;
+  const MaxClaimLines = 15, MaxLeaveLines = 6, MaxLeaveDays = 31;      // 6 rows on the time-off form - a run of full days is one row
   const HalfDayAm = 4, HalfDayPm = 4.5;
   const DayTypes = ["Normal Working Day", "Off Day", "Rest Day", "Public Holiday"];
   const LeaveTypes = ["Full Day", "Half Day (AM)", "Half Day (PM)", "Hours"];
@@ -346,6 +346,15 @@ const E = (() => {
     }
     a.totalHours = R2(a.lines.reduce((t, l) => t + l.hours, 0));
     a.unpaidHours = R2(a.lines.reduce((t, l) => t + l.unpaid, 0));
+    // the public holidays within its dates (the form joins full days across them)
+    const ds = a.lines.map(l => l.date).filter(x => !!day(x)).sort();
+    a.holidays = ds.length ? Object.keys(holidays(pol)).filter(h => h >= ds[0] && h <= ds[ds.length - 1]).sort() : [];
+  }
+  // the admin's public holidays ("2026-12-25|Christmas Day"): date -> name
+  function holidays(pol) {
+    const m = {};
+    ((pol && pol.holidays) || []).forEach(h => { h = String(h || ""); const i = h.indexOf("|"), d = (i >= 0 ? h.slice(0, i) : h).trim(), n = i >= 0 ? h.slice(i + 1).trim() : ""; if (day(d) && !(d in m)) m[d] = n || "Public holiday"; });
+    return m;
   }
 
   function workingDaysBetween(from, to) {
@@ -354,11 +363,42 @@ const E = (() => {
     return n;
   }
 
+  // the rows of the time-off form (Calc.LeaveRows): a run of FULL days - working days in a row, the person's days off between them
+  // skipped - with the same "paid by", reason and no extra break is ONE row; every other day is a row of its own
+  function leaveRows(a) {
+    const ok = s => !!day(s);
+    const lines = a.lines.map((l, i) => ({ l, i })).sort((x, y) => (ok(x.l.date) ? 0 : 1) - (ok(y.l.date) ? 0 : 1) || (ok(x.l.date) && x.l.date !== y.l.date ? (x.l.date < y.l.date ? -1 : 1) : 0) || x.i - y.i).map(x => x.l);
+    const rows = [], hol = new Set(a.holidays || []);
+    for (const l of lines) {
+      const last = rows[rows.length - 1], p = last ? last[last.length - 1] : null;
+      if (p && joinsRun(a.profile, p, l, hol)) last.push(l); else rows.push([l]);
+    }
+    return rows;
+  }
+  function joinsRun(prof, p, l, hol) {
+    const a = day(p.date), b = day(l.date);
+    if (p.leaveType !== "Full Day" || l.leaveType !== "Full Day" || p.paidBy !== l.paidBy || (p.reason || "") !== (l.reason || "")
+      || p.extraBreak > 0 || l.extraBreak > 0 || !a || !b || b <= a || (b - a) / 864e5 > 14) return false;
+    for (let d = addDays(a, 1); d < b; d = addDays(d, 1)) if (expectedDayType(prof, d) === "Normal Working Day" && !hol.has(iso(d))) return false;     // a working day in between (not a holiday): a gap
+    return true;
+  }
+  // the working days from .. to (the person's days off left out) - for "several days" in one go
+  function workingDays(prof, from, to) {
+    const out = [], a = day(from), b = day(to);
+    if (!a || !b) return out;
+    for (let d = a; d <= b && out.length <= MaxLeaveDays; d = addDays(d, 1)) if (expectedDayType(prof, d) === "Normal Working Day") out.push(iso(d));
+    return out;
+  }
+
   function checkLeave(db, a, today, led, pol, statutory) {
     const r = { errors: [], warnings: [] };
     const pp = profileProblem(a.profile); if (pp) r.errors.push(pp);
     if (a.lines.length === 0) r.errors.push("Add at least one day off.");
-    if (a.lines.length > MaxLeaveLines) r.errors.push("The form has room for " + MaxLeaveLines + " lines - you have " + a.lines.length + ".");
+    if (a.lines.length > MaxLeaveDays) r.errors.push("One application has room for " + MaxLeaveDays + " days - you have " + a.lines.length + ". Send the rest as another application.");
+    else {
+      const formRows = leaveRows(a).length;
+      if (formRows > MaxLeaveLines) r.errors.push("The form has room for " + MaxLeaveLines + " rows - full days in a row count as one row; these days make " + formRows + ". Send the rest as another application.");
+    }
     const nh = a.profile.normalHours > 0 ? a.profile.normalHours : 8.5;
     const others = db.tilApps.filter(x => x.id !== a.id && active(x.status));
     const booked = leaveByDate(others);
@@ -366,7 +406,7 @@ const E = (() => {
     for (const x of others) for (const l of x.lines) if ((l.leaveType || "").startsWith("Half")) halves.add(l.date + l.leaveType);
     const otDates = {};
     for (const c of db.claims.filter(c => active(c.status))) for (const l of c.lines) if (!(l.date in otDates)) otDates[l.date] = c.id;
-    const here = {};
+    const here = {}, hols = holidays(pol), unpaidDays = [];
     a.lines.forEach((l, i) => {
       const n = "Line " + (i + 1) + ": ";
       const d = day(l.date);
@@ -384,13 +424,18 @@ const E = (() => {
         else r.warnings.push(n + "you also recorded overtime on " + show(d) + " (" + otDates[l.date] + ").");
       }
       const expected = expectedDayType(a.profile, d);
-      if (expected !== "Normal Working Day") r.warnings.push(n + show(d) + " is a " + DAYNAMES[d.getUTCDay()] + " (" + expected + ") - not a working day.");
+      if (expected !== "Normal Working Day")
+        r.errors.push(n + show(d) + " is a " + DAYNAMES[d.getUTCDay()] + " (" + expected + ") - not one of your working days (" + cleanDays(a.profile.normalDays) + "), so no time off is taken or charged for it. Remove it.");
+      else if (l.date in hols) r.errors.push(n + show(d) + " is a public holiday (" + hols[l.date] + ") - no time off is taken or charged for it. Remove it.");
       if (d < today) r.warnings.push(n + show(d) + " is in the past (applied afterwards).");
       else if (workingDaysBetween(today, d) < 3) r.warnings.push(n + "less than 3 working days' notice for " + show(d) + ".");
-      if (l.paidBy === "Unpaid") r.warnings.push(n + show(d) + " is unpaid leave (" + Num(l.unpaid) + " hrs) - it is deducted from pay.");
+      if (l.paidBy === "Unpaid") unpaidDays.push(n + show(d) + " is unpaid leave (" + Num(l.unpaid) + " hrs) - it is deducted from pay.");
       if (l.restFree > 0) r.warnings.push(n + Num(l.restFree) + " hr of rest in this stretch is not charged.");
       if (l.extraBreak > 0) r.warnings.push(n + Num(l.extraBreak) + " hr extra break allowed by the approver (not charged).");
     });
+    // unpaid leave: one note (a range of days would otherwise repeat it for every day)
+    if (unpaidDays.length === 1) r.warnings.push(unpaidDays[0]);
+    else if (unpaidDays.length > 1) r.warnings.push(unpaidDays.length + " days are unpaid leave (" + Num(a.unpaidHours) + " hrs in all) - they are deducted from pay.");
     const s = led.byRef[a.id];
     a.draws = s ? s.draws : [];
     const uncovered = s ? s.uncovered : 0;
@@ -577,7 +622,7 @@ const E = (() => {
     return "";
   }
 
-  return { lawCovers, MaxClaimLines, MaxLeaveLines, HalfDayAm, HalfDayPm, DayTypes, LeaveTypes, S, active, rates, R2, Num, day, iso, addDays, show, showDate, showMonth, time,
+  return { lawCovers, MaxClaimLines, MaxLeaveLines, MaxLeaveDays, leaveRows, workingDays, holidays, HalfDayAm, HalfDayPm, DayTypes, LeaveTypes, S, active, rates, R2, Num, day, iso, addDays, show, showDate, showMonth, time,
     todayLocal, nowStamp, payOf, lineValue, compute, expectedDayType, deadline, payBy, cleanDays, profileProblem, check, build, checkPayout, computeLeave, checkLeave,
     canonClaim, canonTil, canonPay, LeaveForm, MaxRanges, isCounted, calendarDays, leaveCompute, leaveBalance, leaveCheck, leaveDates, leaveYear, shortCode, licLevel, LIC_NAMES, licLeft, daysTo, tStatus, T_NAMES, tReason, accepted };
 })();

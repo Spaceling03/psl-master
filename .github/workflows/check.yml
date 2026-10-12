@@ -1,0 +1,26 @@
+# Runs on every push: the repository is public, so nothing secret may ever be in it. A push that contains a private key, a
+# service-account file, an OAuth secret or token, or any Google API key other than the website's own public one is marked FAILED
+# (and GitHub's own secret scanning + push protection should be switched on too: Settings > Code security).
+name: No secrets in the repository
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Look for keys, passwords and tokens
+        run: |
+          bad=0
+          if git ls-files | grep -Ei '\.(pem|key|p12|pfx|jks|keystore|env|xlsx|docx|csv)$|service.?account|credentials'; then
+            echo "::error::A key, credentials or data file is in the repository (listed above)"; bad=1
+          fi
+          if grep -rInE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----|"private_key"[[:space:]]*:|"client_secret"[[:space:]]*:|client_secret=|"type"[[:space:]]*:[[:space:]]*"service_account"|"refresh_token"[[:space:]]*:[[:space:]]*"|ya29\.[0-9A-Za-z_-]{20,}|ghp_[0-9A-Za-z]{36}|github_pat_|AKIA[0-9A-Z]{16}|"privateKey"[[:space:]]*:' --exclude-dir=.git --exclude-dir=.github .; then
+            echo "::error::Something secret is in the lines above"; bad=1
+          fi
+          keys=$(grep -rhoE 'AIza[0-9A-Za-z_-]{35}' --exclude-dir=.git --exclude-dir=.github . | sort -u | grep -vx 'AIzaSyBdIiebcZSgDBRy0Stm-aQh8rzjs9mP73M' || true)
+          if [ -n "$keys" ]; then
+            echo "::error::A Google API key that is not this website's public Firebase key is in the files"; bad=1
+          fi
+          exit $bad
