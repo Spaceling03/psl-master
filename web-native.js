@@ -12,7 +12,7 @@
    against the person's Google sign-in (verified email, an active employee record), exactly as for the PC and Android apps. What this
    device keeps (the person's own data, for offline starts) is wiped when they sign out or another account signs in. */
 (function () {
-  const BUILD = "2026.10.12.1618";
+  const BUILD = "2026.10.12.1642";
   const PROJECT = "psl-master", API_KEY = "AIzaSyBdIiebcZSgDBRy0Stm-aQh8rzjs9mP73M", ADMIN = "admin@psetialestari.com";
   const FSB = "https://firestore.googleapis.com/v1/projects/" + PROJECT + "/databases/(default)/documents";
   const RTDB = "https://psl-master-default-rtdb.asia-southeast1.firebasedatabase.app";
