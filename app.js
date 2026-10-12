@@ -1676,10 +1676,45 @@ function pageTender(v, id) {
 }
 
 // ---------- approve
+// what this approver decided - newest first (as the PC's Approvals > Decided): read when the list is opened, again on "Reload"
+let apprView = "waiting", decided = null, decidedBusy = false, decidedErr = "", decidedQ = "", decidedShow = 40;
+async function loadDecided() {
+  if (decidedBusy) return;
+  decidedBusy = true; decidedErr = "";
+  try {
+    const name = d => ST.names[d.f.employeeId] || d.f.name || d.f.employeeId;
+    const days = ls => (ls || []).map(l => E.showDate(l.date)).filter((x, i, a) => a.indexOf(x) === i);
+    const span = ls => { const d = days(ls); return d.length <= 3 ? d.join(", ") : d[0] + " – " + d[d.length - 1] + " (" + d.length + " days)"; };
+    const out = [];
+    if (DEMO) {
+      ST.db.claims.concat(ST.db.tilApps).filter(x => x.status === "approved" || x.status === "declined").forEach(x => out.push({ kind: x.lines && x.lines[0] && "leaveType" in x.lines[0] ? "til" : "claim",
+        id: x.id, emp: ME.employeeId, name: "Ahmad bin Ali (sample)", at: x.decidedAt || x.submittedAt, result: x.status, note: x.decisionNote || "", period: span(x.lines),
+        hours: x.totalHours || (x.totals || {}).hours || 0, category: x.category || "" }));
+    } else {
+      for (const [col, kind, from] of [["ot_claims", "claim", claimFrom], ["ot_payouts", "pay", payFrom], ["ot_til", "til", tilFrom]])
+        for (const d of await fs.where(col, [{ f: "decidedBy", v: ME.email }])) {
+          const o = from(d); if (!o) continue;
+          out.push({ kind, id: o.id, emp: d.f.employeeId, name: name(d), at: o.decidedAt || "", result: o.status, note: o.decisionNote || "",
+            period: kind === "pay" ? "OT pay from credits" : span(o.lines), hours: kind === "pay" ? o.hours : kind === "claim" ? (o.totals || {}).hours || 0 : o.totalHours,
+            amount: kind === "pay" ? o.amount : 0, unpaid: kind === "til" ? o.unpaidHours : 0, category: o.category || "" });
+        }
+      // requests to cancel approved leave that this approver answered
+      for (const d of await fs.where("ot_til", [{ f: "cancelDecidedBy", v: ME.email }])) {
+        const a = tilFrom(d); if (!a) continue;
+        out.push({ kind: "cancel", id: a.id, emp: d.f.employeeId, name: name(d), at: a.cancelDecidedAt || "", result: a.status === "cancelled" ? "cancel-agreed" : "cancel-refused",
+          note: a.cancelNote || "", period: span(a.lines), hours: a.totalHours, category: a.category || "" });
+      }
+    }
+    decided = out.sort((a, b) => (b.at || "") > (a.at || "") ? 1 : (b.at || "") < (a.at || "") ? -1 : 0);
+  } catch (e) { decidedErr = e.message || String(e); if (!decided) decided = []; }
+  finally { decidedBusy = false; }
+}
 function pageApprove(v) {
   title("Approve");
   const KIND = { claim: "OT hours to confirm", pay: "OT pay", til: "Time off", cancel: "Cancel approved leave", training: "Training / event" };
-  v.innerHTML = banners() + `<div class="sub" style="margin:0 4px 12px">Accept or decline OT hours, OT pay, time off and leave cancellations. After an approval the admin / HR make the signed copy (signature + chop) for the employee.</div>` +
+  const seg = `<div class="seg"><button data-av="waiting" class="${apprView === "waiting" ? "on" : ""}">Waiting (${ST.conf.length})</button><button data-av="decided" class="${apprView === "decided" ? "on" : ""}">Decided</button></div>`;
+  if (apprView === "decided") { v.innerHTML = banners() + seg + decidedList(); return; }
+  v.innerHTML = banners() + seg + `<div class="sub" style="margin:0 4px 12px">Accept or decline OT hours, OT pay, time off and leave cancellations. After an approval the admin / HR make the signed copy (signature + chop) for the employee.</div>` +
     `<button class="item" data-act="office"><div class="main"><div class="t">Who's in</div><div class="m">Who is on leave today and this week</div></div><div class="r">›</div></button>` +
     (ST.conf.map((i, n) => i.kind === "training" ? `<div class="item"><span class="bar" style="background:#22c55e"></span><div class="main"><div class="t">${esc(i.name)}</div>
       <div class="m">${esc(i.period)}</div><div class="whochips">${i.trn.names.map(nm => `<span>${esc(nm)}</span>`).join("")}</div>${i.trn.notes ? `<div class="m"><i>${esc(i.trn.notes)}</i></div>` : ""}
@@ -1689,6 +1724,25 @@ function pageApprove(v) {
       ${i.notes ? `<span class="chip warn" style="margin-top:4px">${plural(i.notes, "note", "notes")}</span>` : ""}</div>
       <div class="r"><div class="big">${i.kind === "pay" ? money(i.amount) : hrs(i.hours) + " h"}</div><div class="m">${dmy(i.at)}</div></div></button>`).join("")
       || `<div class="card empty">Nothing waiting - all done.</div>`);
+}
+// what you decided: search by name, dates or reference; tap one for the whole request
+const DECIDED = { approved: ["Approved", "ok"], declined: ["Declined", "bad"], withdrawn: ["Withdrawn", "gray"], cancel_requested: ["Approved · cancel asked", "warn"],
+  cancelled: ["Approved · later cancelled", "gray"], "cancel-agreed": ["Cancel agreed", "gray"], "cancel-refused": ["Cancel refused", "warn"] };
+function decidedList() {
+  if (!decided) { if (!decidedBusy) loadDecided().then(() => { if (apprView === "decided") keepScroll(render); }); return `<div class="loading"><span class="spin"></span>Reading what you decided…</div>`; }
+  const KIND = { claim: "OT hours", pay: "OT pay", til: "Time off", cancel: "Cancel leave" };
+  const q = decidedQ.trim().toLowerCase();
+  const list = decided.filter(i => !q || [i.name, i.emp, i.period, i.id, i.note, i.category, KIND[i.kind]].join(" ").toLowerCase().indexOf(q) >= 0);
+  return `<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input type="search" id="decQ" placeholder="Name, dates or reference" value="${esc(decidedQ)}"></div>` +
+    (decidedErr ? `<div class="banner err">Could not read everything: ${esc(decidedErr)}</div>` : "") +
+    `<div class="sub" style="margin:0 4px 10px;display:flex;gap:8px;align-items:center"><span class="grow">${plural(list.length, "request", "requests")} you decided${q ? " match" : ""}, newest first.</span><button class="btn sm" data-act="decReload">Reload</button></div>` +
+    (list.slice(0, decidedShow).map(i => { const r = DECIDED[i.result] || [i.result, "gray"];
+      return `<button class="item" data-dec="${esc(i.kind)}|${esc(i.id)}|${esc(i.name)}"><span class="bar" style="background:${r[1] === "ok" ? "var(--ok)" : r[1] === "bad" ? "var(--bad)" : r[1] === "warn" ? "#d97706" : "#c5c8d1"}"></span><div class="main">
+        <div class="t">${esc(i.name)}</div><div class="m">${KIND[i.kind]}${i.category ? " · " + esc(leaveLabel(i.category)) : ""} · ${esc(i.period)}</div>
+        ${i.note ? `<div class="m"><i>“${esc(i.note)}”</i></div>` : ""}</div>
+        <div class="r"><div class="big">${i.kind === "pay" ? money(i.amount) : i.category ? "" : hrs(i.hours) + " h"}</div><span class="chip ${r[1]}">${r[0]}</span><div class="m">${i.at ? dmy(i.at) : ""}</div></div></button>`; }).join("")
+      || `<div class="card empty">${q ? "Nothing you decided matches “" + esc(decidedQ) + "”." : "Nothing decided yet."}</div>`) +
+    (list.length > decidedShow ? `<button class="btn block" data-act="decMore" style="margin-top:4px">Show more (${list.length - decidedShow} older)</button>` : "");
 }
 function pageApproveItem(v, it) {
   title(it.name);
@@ -1702,7 +1756,14 @@ function pageApproveItem(v, it) {
     h += others.length ? `<div class="banner info"><b>Also away on these days</b><br>${others.map(esc).join("<br>")}</div>` : `<div class="sub" style="margin:0 2px 10px">Nobody else is away on these days.</div>`;
   }
   let canApprove = true, approveLabel = "Confirm hours";
-  if (apprItem.kind === "claim") {
+  if (apprItem.kind === "claim" && o.status !== "submitted") {
+    // decided: the hours as they were confirmed (day type, break and note as the approver left them) - nothing to change
+    h += o.lines.map(l => `<div class="linecard"><div class="head"><b>${dmy(l.date)} · ${esc(l.start)}–${esc(l.end)}</b><span class="chip blue">${hrs(l.hours)} h</span></div>
+      <div class="m sub">${esc(l.remarks)}</div><div class="m">${esc(l.dayType)}${l.breakHrs ? " · break " + hrs(l.breakHrs) + " h" : ""}${l.value ? " · worth " + money(l.value) : ""}</div>
+      ${l.note ? `<div class="m"><i>Note: “${esc(l.note)}”</i></div>` : ""}</div>`).join("");
+    const t = o.totals || {};
+    h += `<div class="card"><b>${hrs(t.hours || 0)} h</b>${t.value ? ` worth <b>${money(t.value)}</b>` : ""}</div>`;
+  } else if (apprItem.kind === "claim") {
     const view = apprClaimView();
     h += view.c.lines.map((l, i) => `<div class="linecard" data-ai="${i}"><div class="head"><b>${dmy(l.date)} · ${esc(l.start)}–${esc(l.end)}</b><span class="chip blue">${hrs(l.hours)} h</span></div>
       <div class="m sub" style="margin-bottom:8px">${esc(l.remarks)}</div>
@@ -1716,7 +1777,7 @@ function pageApproveItem(v, it) {
     const view = apprPayView();
     h += `<div class="section">Paid from</div>` + view.p.draws.map(d => `<div class="item"><div class="main"><div class="t">${dmy(d.date)} · ${esc(d.dayType)}</div><div class="m">${hrs(d.hours)} of ${hrs(d.lineHours)} h${d.pending ? " · not confirmed yet" : ""}</div></div><div class="r"><div class="big">${money(d.amount)}</div></div></div>`).join("") +
       `<div class="card"><b>${hrs(o.hours)} h = ${money(view.p.amount)}</b>${o.remarks ? `<div class="sub">“${esc(o.remarks)}”</div>` : ""}</div>` +
-      `<div class="msgs">${msgs(view.blockers, [])}</div><div class="sub" style="margin:0 4px 12px">After you approve, the admin / HR make the signed copy for the employee.</div>`;
+      (o.status !== "submitted" ? "" : `<div class="msgs">${msgs(view.blockers, [])}</div><div class="sub" style="margin:0 4px 12px">After you approve, the admin / HR make the signed copy for the employee.</div>`);
     canApprove = !view.blockers.length; approveLabel = "Approve";
   } else if (o.category) {
     // leave on the company leave form (annual, sick ...): the days, the balance, the reason and who covers
@@ -1740,6 +1801,17 @@ function pageApproveItem(v, it) {
         <div class="msgs">${msgs(view.blockers, view.warnings)}</div><div class="sub" style="margin:0 4px 12px">After you approve, the admin / HR make the signed copy for the employee.</div>`;
       canApprove = !view.blockers.length; approveLabel = "Approve";
     }
+  }
+  const waiting = apprItem.kind === "cancel" ? o.status === "cancel_requested" : o.status === "submitted";
+  if (!waiting) {
+    // already decided: what was decided, by whom and when - nothing to press
+    const cancelAns = apprItem.kind === "cancel" && o.cancelDecidedBy;
+    const r = cancelAns ? (o.status === "cancelled" ? "Cancel agreed - the leave is cancelled" : "Cancel refused - the leave stands")
+      : ({ approved: "Approved", declined: "Declined", withdrawn: "Withdrawn by the employee", cancelled: "Approved, later cancelled", cancel_requested: "Approved - the employee asked to cancel" })[o.status] || o.status;
+    const by = cancelAns ? o.cancelDecidedBy : (o.decidedByName || o.decidedBy), at = cancelAns ? o.cancelDecidedAt : o.decidedAt, note = cancelAns ? o.cancelNote : o.decisionNote;
+    h += `<div class="card"><div class="t" style="font-weight:800">${esc(r)}</div><div class="sub">${by ? "by " + esc(by) : ""}${at ? " · " + dmy(at) : ""}</div>${note ? `<div class="m" style="margin-top:6px"><i>“${esc(note)}”</i></div>` : ""}</div>`;
+    v.innerHTML = h;
+    return;
   }
   h += `<div class="field"><label>Remarks to the employee (needed when declining)</label><input type="text" id="apprNote" maxlength="300" placeholder="e.g. checked with the site timesheet" value="${esc(apprNoteText)}"></div>`;
   v.innerHTML = h;
@@ -1825,6 +1897,10 @@ document.addEventListener("click", async e => {
   const dr = t.closest("[data-delrem]"); if (dr) { deleteReminder(dr.dataset.delrem); return; }
   const rv = t.closest("#rgPaid button");
   if (rv && !rv.disabled) { tilRange.paidBy = rv.dataset.rv; $$("#rgPaid button").forEach(b => b.className = b === rv ? (rv.dataset.rv === "TIL" ? "on til" : "on") : ""); rangeInfo(); return; }
+  const av = t.closest("[data-av]");
+  if (av) { apprView = av.dataset.av; if (apprView === "decided" && decided && Date.now() - (window.__decAt || 0) > 5 * 60e3) { decided = null; window.__decAt = Date.now(); } if (apprView === "decided" && !decided) window.__decAt = Date.now(); render(); return; }
+  const dc = t.closest("[data-dec]");
+  if (dc) { const [kind, id, name] = dc.dataset.dec.split("|"); openApproval({ kind, id, name }); return; }
   const pb = t.closest('[data-f="paidBy"] button');
   if (pb && !pb.disabled) { const i = +pb.closest(".linecard").dataset.i; ST.drafts.til.lines[i].paidBy = pb.dataset.v; save(); render(); return; }
   const snd = t.closest("[data-sound]"); if (snd) { remCache.sound = snd.dataset.sound; saveRem(); render(); return; }
@@ -1836,6 +1912,8 @@ document.addEventListener("click", async e => {
     stack.push({ name: a }); render(); window.scrollTo(0, 0); return;
   }
   if (a === "addLine") { const L = ST.drafts.claim.lines; if (L.length >= E.MaxClaimLines) return toast("One record holds " + E.MaxClaimLines + " lines - send it and start another"); L.push(blankLine(L[L.length - 1])); save(); render(); return; }
+  if (a === "decReload") { decided = null; window.__decAt = Date.now(); render(); return; }
+  if (a === "decMore") { decidedShow += 40; keepScroll(render); return; }
   if (a === "addLeave") { if (ST.drafts.til.lines.length >= E.MaxLeaveDays) return toast("One application has room for " + E.MaxLeaveDays + " days"); ST.drafts.til.lines.push(blankLeave()); save(); render(); return; }
   if (a === "addRange") {
     const d = ST.drafts.til, from = tilRange.from, to = tilRange.to || tilRange.from;
@@ -1906,6 +1984,7 @@ document.addEventListener("input", e => {
   if (t.id === "payHours") { ST.drafts.pay.hours = E.R2(Math.max(0, parseFloat(t.value) || 0)); save(); payCalc(); return; }
   if (t.id === "payRemarks") { ST.drafts.pay.remarks = t.value.slice(0, 200); save(); return; }
   if (t.id === "apprNote") { apprNoteText = t.value; return; }
+  if (t.id === "decQ") { decidedQ = t.value; decidedShow = 40; const pos = t.selectionStart; render(); const q = $("#decQ"); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch (x) { /* fine */ } } return; }
   if (t.id === "rgFrom" || t.id === "rgTo") {
     tilRange[t.id === "rgFrom" ? "from" : "to"] = t.value;
     if (t.id === "rgFrom") { const to = $("#rgTo"); if (to) { to.min = t.value; if (!tilRange.to || tilRange.to < t.value) { tilRange.to = t.value; to.value = t.value; } } }
