@@ -1,0 +1,87 @@
+/* PSL Master web - the iPad (landscape) and Mac layout: the PC app's look. Only applies when guard.js marks the page "wide"
+   (900 px wide and 560 px tall or more); an iPhone keeps the phone app's own layout (app.css) untouched. */
+html.framed body{display:none!important}
+#side{display:none}
+
+html.wide{--side:252px}
+html.wide button{cursor:pointer}
+html.wide #app{padding-left:var(--side)}
+html.wide .tabs{display:none}
+
+/* the menu on the left - as PSL Master on the PC */
+html.wide #side{display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;width:var(--side);z-index:30;
+  padding:calc(18px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
+  background:linear-gradient(185deg,#17171c 0%,#23232c 58%,#4a0c1b 100%);color:#d5d6de}
+html.wide #app.hidden~#side{display:none}
+#side .brand{display:flex;align-items:center;gap:11px;padding:2px 6px 16px}
+#side .brand .logo{background:#fff;border-radius:11px;padding:5px 8px;height:42px;display:flex;align-items:center;flex:none}
+#side .brand .logo img{height:30px;display:block}
+#side .brand b{display:block;color:#fff;font-size:17px;font-weight:800;letter-spacing:-.2px}
+#side .brand span{font-size:11.5px;color:#a9abb8}
+#side nav{display:grid;gap:4px;overflow-y:auto;margin:0 -4px;padding:0 4px;align-content:start}
+#side .nav-label{font-size:11.5px;font-weight:800;letter-spacing:.3px;color:#7d7f8c;padding:14px 10px 4px}
+#side .nav-item{display:flex;align-items:center;gap:12px;width:100%;border:0;background:transparent;color:#d5d6de;padding:11px 12px;border-radius:12px;font-weight:600;font-size:14px;text-align:left;position:relative}
+#side .nav-item svg,#side .foot-btn svg{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#side .nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
+#side .nav-item.on{background:#fff;color:var(--ink)}
+#side .nav-item .cnt{margin-left:auto;min-width:22px;height:22px;border-radius:11px;background:rgba(255,255,255,.14);color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 6px}
+#side .nav-item.alert{background:linear-gradient(90deg,#e11d48 0%,#b0102b 100%);color:#fff;box-shadow:0 6px 18px rgba(225,29,72,.45);animation:sidepulse 2.2s ease-in-out infinite}
+#side .nav-item.alert.on{background:#fff;color:#b0102b;box-shadow:0 0 0 3px #e11d48,0 6px 18px rgba(225,29,72,.45)}
+#side .nav-item.alert .cnt{background:#fff;color:#c8102e;font-size:13px;min-width:26px;height:26px;border-radius:13px}
+#side .nav-item.alert.on .cnt{background:#c8102e;color:#fff}
+@keyframes sidepulse{0%,100%{box-shadow:0 6px 18px rgba(225,29,72,.45),0 0 0 0 rgba(225,29,72,.55)}55%{box-shadow:0 6px 18px rgba(225,29,72,.45),0 0 0 9px rgba(225,29,72,0)}}
+#side .foot{margin-top:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:6px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)}
+#side .live{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#4ade80;padding:2px 10px}
+#side .live i{width:8px;height:8px;border-radius:50%;background:currentColor}
+#side .live.off{color:#9ca3af}#side .live.off i{background:transparent;border:1.5px solid currentColor}
+#side .who{display:flex;align-items:center;gap:10px;padding:8px;border:0;background:transparent;border-radius:12px;text-align:left;color:inherit;width:100%}
+#side .who:hover,#side .who.on{background:rgba(255,255,255,.08)}
+#side .who .av{width:38px;height:38px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;flex:none;font-size:13px}
+#side .who .w{min-width:0;flex:1;display:flex;flex-direction:column}
+#side .who .n{display:flex;align-items:center;min-width:0;color:#fff;font-weight:700;font-size:13.5px;line-height:1.2}
+#side .who .n .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#side .who .n .tag{flex:none;margin:0 0 0 6px}
+#side .who .s{font-size:11.5px;color:#a9abb8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#side .tag{display:inline-block;background:#fff;color:var(--red);border-radius:6px;font-size:9.5px;font-weight:800;padding:1px 6px;margin-left:6px;letter-spacing:.4px;vertical-align:middle}
+#side .foot-btn{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;color:#b9bbc7;padding:8px 12px;border-radius:10px;font-weight:600;font-size:13px}
+#side .foot-btn:hover{background:rgba(255,255,255,.08);color:#fff}
+
+/* the page header: light, like a PC page title (the name, live state and Sign out are in the menu) */
+html.wide .top{background:rgba(243,244,247,.94);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);color:var(--ink);height:auto;min-height:68px;
+  padding:calc(10px + env(safe-area-inset-top)) 32px 10px;border-bottom:1px solid var(--line)}
+html.wide .top .title{font-size:23px;font-weight:900;letter-spacing:-.3px}
+html.wide .top .title.long{font-size:20px}
+html.wide .top .back{color:var(--ink);margin-left:-10px}
+html.wide .top .back svg{stroke:var(--ink)}
+html.wide .top .back:hover{background:rgba(0,0,0,.06)}
+html.wide .top .livedot,html.wide .top .avatar{display:none}
+
+/* the page: wide, with room - forms and "me" stay a comfortable width */
+html.wide .view{max-width:1240px;margin:0;padding:20px 32px 48px}
+html.wide .view.with-bar{padding-bottom:120px}
+html.wide .view[data-page$="Edit"],html.wide .view[data-page="me"],html.wide .view[data-page="approveItem"],html.wide .view[data-page="tender"]{max-width:860px}
+html.wide .actionbar{left:var(--side);bottom:0;padding-left:32px;padding-right:32px;padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+html.wide #toast{left:auto;right:28px;bottom:28px;max-width:440px}
+html.wide .view.with-bar~#toast,html.wide #app:has(.actionbar:not(.hidden))~#toast{bottom:110px}
+
+/* Home: the cards side by side, four tiles in a row */
+html.wide .hcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:16px}
+html.wide .hcards .hcard{margin:0;height:100%}
+html.wide .tiles{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+html.wide .seg{max-width:720px}
+
+/* Calendar: the month on the left, the chosen day on the right (as the PC's day panel) */
+html.wide .calwrap{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(320px,1fr);gap:24px;align-items:start}
+html.wide .calside{position:sticky;top:90px;max-height:calc(100vh - 110px);overflow:auto;padding-right:4px}
+html.wide .calside>.section:first-child{margin-top:0}
+html.wide .cd{min-height:82px;justify-content:flex-start;padding-top:6px}
+html.wide .addbar{max-width:720px}
+
+/* pop-ups: a dialog in the middle instead of a sheet from the bottom */
+html.wide .veil{align-items:center;justify-content:center;padding:24px}
+html.wide .sheet{max-width:560px;border-radius:20px;max-height:82vh;padding:22px 24px}
+
+/* sign-in: a card in the middle of the screen */
+html.wide .login{align-items:center}
+html.wide .login>*{width:100%;max-width:440px}
+html.wide .login .logo{align-self:center;width:auto}

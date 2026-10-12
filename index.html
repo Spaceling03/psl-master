@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- What this page may load and talk to (GitHub Pages cannot send security headers, so the rules are here): its own files, Google's
+     sign-in and Firebase - nothing else. No script written into a page can run (no 'unsafe-inline' for scripts). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.googleusercontent.com; font-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://psl-master-default-rtdb.asia-southeast1.firebasedatabase.app wss://psl-master-default-rtdb.asia-southeast1.firebasedatabase.app; frame-src https://psl-master.firebaseapp.com https://accounts.google.com https://apis.google.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>PSL Master</title>
+<meta name="description" content="Overtime credits, leave, licences and tenders - Pembinaan Setia Lestari (staff only)">
+<meta name="theme-color" content="#17171C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="PSL Master">
+<script src="guard.js?v=2026.10.12.1518"></script>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="stylesheet" href="app.css?v=2026.10.12.1518">
+<link rel="stylesheet" href="desktop.css?v=2026.10.12.1518">
+<style>
+  /* the web app only: the "Add to Home Screen" hint for iPhones still in a Safari tab */
+  #installHint{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:60;background:#fff;color:#17171c;border-radius:16px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);padding:14px 44px 14px 16px;font-size:14px;line-height:1.4}
+  #installHint b{display:block;margin-bottom:2px}
+  #installHint button{position:absolute;top:8px;right:8px;width:32px;height:32px;border:0;background:#eef0f4;border-radius:50%;font-size:16px;color:#4b5060}
+  #installHint .share{display:inline-block;width:16px;height:16px;vertical-align:-3px}
+  html.wide #installHint{left:auto;right:20px;max-width:380px}
+</style>
+</head>
+<body>
+<div id="login" class="hidden"></div>
+<div id="app" class="hidden">
+  <header class="top">
+    <button class="back hidden" id="back" aria-label="Back"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="title" id="title">PSL Master</div>
+    <span class="livedot off" id="live"><i></i><span>Offline</span></span>
+    <button class="avatar" id="me" aria-label="Me">?</button>
+  </header>
+  <main class="view" id="view"></main>
+  <div class="actionbar hidden" id="bar"></div>
+  <nav class="tabs" id="tabs"></nav>
+</div>
+<div id="toast"></div>
+<div id="installHint" class="hidden"><b>Install PSL Master</b>Tap <svg class="share" viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M6 11v9h12v-9"/></svg> Share, then <b style="display:inline">Add to Home Screen</b>. Open it from there - reminders only work that way.<button aria-label="Close">✕</button></div>
+<!-- Google's Firebase sign-in, checked against its fingerprint: a changed copy is refused by the browser -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" integrity="sha384-AQ3POAMqIhwS81FrUH95ekxqBZHeP5tG2JfEL3+7GuTtfRLWnrRh32UxwzM+//A9" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" integrity="sha384-TnlRYaR4JYz/lpaGuaiU61PjNberSA4vjLjtF+oRC/IkohkJqnWxw5EmDSOt1vA1" crossorigin="anonymous"></script>
+<script src="engine.js?v=2026.10.12.1518"></script>
+<script src="web-native.js?v=2026.10.12.1518"></script>
+</body>
+</html>
