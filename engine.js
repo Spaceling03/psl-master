@@ -21,7 +21,13 @@ const E = (() => {
   }
 
   // Math.Round(x, 2, MidpointRounding.AwayFromZero)
-  const R2 = x => { const s = x < 0 ? -1 : 1; return s * Math.round(Math.abs(x) * 100 + 1e-9) / 100; };
+  // to the cent exactly as Excel's ROUND on the company form (and Calc.R2 on the PC): the number as 15 significant digits, then half
+  // away from zero - 0.225 (stored as 0.22499999...) is 0.23, 1.005 is 1.01
+  const R2 = x => {
+    if (!isFinite(x)) return 0;
+    const s = x < 0 ? -1 : 1, a = Number(Math.abs(x).toPrecision(15));
+    return s * Math.round(Number((a * 100).toPrecision(15))) / 100;
+  };
   const Num = x => { const v = R2(x); return String(v); };
 
   // ---- dates (all as plain calendar days, no time zones)
@@ -265,7 +271,7 @@ const E = (() => {
         const t = R2(Math.min(left, need));
         l.used = R2(l.used + t); need = R2(need - t);
         s.draws.push({ claimId: l.refId, line: l.line, src: l.src, date: l.date, dayType: l.dayType, start: l.start, end: l.end, breakHrs: l.breakHrs, lineHours: l.lineHours,
-          hours: t, perHour: R2(perHour(l)), amount: R2(t * perHour(l)), pending: !l.approved, expired: l.approved && l.expiry !== "" && l.expiry < tIso });
+          hours: t, perHour: R2(perHour(l)), amount: R2(l.hours > 0 ? l.value * t / l.hours : 0), pending: !l.approved, expired: l.approved && l.expiry !== "" && l.expiry < tIso });      // as the form: worth x taken / hours
       }
       s.uncovered = need > 0.0001 ? R2(need) : 0;
     };
